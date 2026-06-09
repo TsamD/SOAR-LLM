@@ -1,0 +1,87 @@
+services:
+ ####### Zeek  #######
+  zeek:
+    image: zeek/zeek:lts
+    container_name: zeek
+    restart: always
+    network_mode: host
+    volumes:
+      - ./data/zeek/logs:/logs
+      - ./config/zeek/local.zeek:/usr/local/zeek/share/zeek/site/local.zeek:ro
+    command: /bin/bash -c "cd /logs && zeek -C -i br_soc /usr/local/zeek/share/zeek/site/local.zeek"
+#    command: /bin/bash -c "cd /logs && zeek -C -i br_soc"
+  ####### Suricata #######
+  suricata:
+    build:
+      context: suricata/.
+    container_name: suricata
+    restart: always
+    network_mode: host
+    cap_add:
+     - NET_ADMIN
+     - NET_RAW
+    volumes:
+      - ./config/suricata/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./data/suricata/rules:/var/lib/suricata/rules
+      - ./data/suricata/logs:/var/log/suricata/
+    command: /bin/bash -c "suricata-update && suricata -c /etc/suricata/suricata.yaml -i br_soc && tail -f /var/log/cron.log"
+ ####### Apps #######
+  server-app:
+    build:
+      context: ./server-app/.
+    container_name: server-app
+    restart: always
+    networks:
+      soc:
+        ipv4_address: 172.23.0.2
+    ports:
+      - "3001:80"
+  curl:
+    build:
+      context: ./curl/.
+    container_name: curl
+    restart: always
+    networks:
+      soc:
+        ipv4_address: 172.23.0.20
+ ####### Maildev #######
+  maildev:
+    image: maildev/maildev
+    container_name: maildev
+    restart: always
+    networks:
+      soc:
+        ipv4_address: 172.23.0.14
+    environment:
+      - TZ=Europe/Paris
+      - MAILDEV_WEB_PORT=1080
+      - MAILDEV_SMTP_PORT=25
+    ports:
+      - "1080:1080"
+ ####### Caldera #######
+  caldera:
+    image: ghcr.io/mitre/caldera
+    container_name: caldera
+    restart: always
+    networks:
+      soc:
+        ipv4_address: 172.23.0.19
+    ports:
+      - "8022:8022"
+      - "8888:8888"
+      - "8853:8853"
+      - "7010:7010"
+      - "7011:7011"
+      - "7012:7012"
+    volumes:
+      - ./caldera/config/local.yml:/usr/src/app/conf/local.yml
+      - ./caldera/config/ssh_keys:/ssh_keys
+networks:
+  soc:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.23.0.0/16
+    driver_opts:
+      com.docker.network.bridge.name: br_soc

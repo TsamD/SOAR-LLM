@@ -1,0 +1,19 @@
+.env
+.env.local
+data/
+logs/
+cassandra/
+elasticsearch/
+cortex/cortex-jobs/
+cortex/config/index.conf
+cortex/config/secret.conf
+cortex/config/index.conf                                                                                                                                                                                                        cortex/config/secret.conf 
+cortex/config/index.conf                                                                                                                                                                                                        cortex/config/index.conf 
+.env
+*.env
+certificates/
+config/misp/
+data/
+*.pem
+privatekey
+publickey
