@@ -1,6 +1,6 @@
 # SOC-WAZUH-CALDERA-HIVE-CORTEX
 
-Open-source SOC lab built with Docker Compose, combining attack simulation, detection, SIEM, incident response, automation, and notification.
+Open-source SOAR lab built with Docker Compose, combining attack simulation, detection, SIEM, incident response, automation, and notification.
 
 ![SOAR Architecture](soar.png)
 
@@ -8,7 +8,7 @@ Open-source SOC lab built with Docker Compose, combining attack simulation, dete
 
 ## Overview
 
-This project implements a complete SOC pipeline by separating each capability into functional components:
+This project implements a complete SOAR pipeline by separating each capability into functional components:
 
 - attack simulation
 - application layer (targets)
@@ -18,7 +18,7 @@ This project implements a complete SOC pipeline by separating each capability in
 - notification
 - automation and AI enrichment
 
-The architecture is designed to mimic a real SOC workflow from attack to response.
+The architecture is designed to mimic a real SOAR workflow from attack to response.
 
 ---
 
