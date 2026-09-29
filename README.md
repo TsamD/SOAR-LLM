@@ -1,4 +1,4 @@
-# SOC-WAZUH-CALDERA-HIVE-CORTEX
+# SOAR-WAZUH-CALDERA-HIVE-CORTEX-MISP
 
 Open-source SOAR lab built with Docker Compose, combining attack simulation, detection, SIEM, incident response, automation, and notification.
 
